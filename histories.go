@@ -218,6 +218,19 @@ type commitResponse struct {
 	ServerHeadIndex int `json:"server-head-index"`
 }
 
+// CommitUncertainError means the POST may have reached Things Cloud, but the
+// client could not prove whether it was accepted. Callers must reconcile by
+// reading history and must not blindly send the same mutation again.
+type CommitUncertainError struct {
+	Err error
+}
+
+func (e *CommitUncertainError) Error() string {
+	return fmt.Sprintf("commit outcome is uncertain: %v", e.Err)
+}
+
+func (e *CommitUncertainError) Unwrap() error { return e.Err }
+
 // Identifiable abstracts different thingscloud write requests. As we need to provide a map
 // indexed by UUID, all we care about is the ID of the change, not the change itself
 type Identifiable interface {
@@ -274,7 +287,7 @@ func (h *History) Write(items ...Identifiable) error {
 	req.URL.RawQuery = query.Encode()
 	resp, err := h.Client.do(req)
 	if err != nil {
-		return err
+		return &CommitUncertainError{Err: err}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -284,11 +297,11 @@ func (h *History) Write(items ...Identifiable) error {
 	}
 	rs, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return &CommitUncertainError{Err: err}
 	}
 	var w commitResponse
 	if err := json.Unmarshal(rs, &w); err != nil {
-		return fmt.Errorf("decoding commit response: %w", err)
+		return &CommitUncertainError{Err: fmt.Errorf("decoding commit response: %w", err)}
 	}
 	h.LatestServerIndex = w.ServerHeadIndex
 	return nil

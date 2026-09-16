@@ -1,6 +1,7 @@
 package thingscloud
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -38,8 +39,13 @@ func TestHistory_Write_ErrorsOnMalformedCommitResponse(t *testing.T) {
 		Item: Item{UUID: "VJ1edXTP9q3PmFDUuy8EQh", Kind: ItemKindTask, Action: ItemActionCreated},
 		P:    TaskActionItemPayload{Title: String("x")},
 	}
-	if err := h.Write(item); err == nil {
+	err := h.Write(item)
+	if err == nil {
 		t.Error("Write with malformed commit response: got nil error — LatestServerIndex silently stays stale")
+	}
+	var uncertain *CommitUncertainError
+	if !errors.As(err, &uncertain) {
+		t.Fatalf("Write malformed response error = %T %v, want *CommitUncertainError", err, err)
 	}
 }
 
