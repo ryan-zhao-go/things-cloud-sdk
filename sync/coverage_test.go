@@ -389,6 +389,56 @@ func TestProcessTagChecklistTombstone(t *testing.T) {
 	})
 }
 
+func TestChecklistSparseUpdateAfterTombstoneRestoresStoredFields(t *testing.T) {
+	t.Parallel()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	syncer, err := Open(dbPath, nil)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer syncer.Close()
+
+	itemID := "checklist-after-tombstone"
+	taskID := "parent-task"
+	title := "Keep this title"
+	index := 4
+	create, _ := json.Marshal(things.CheckListActionItemPayload{
+		Title: &title, Index: &index, TaskIDs: &[]string{taskID},
+	})
+	if _, err := syncer.processItems([]things.Item{{
+		UUID: itemID, Kind: things.ItemKindChecklistItem3, Action: things.ItemActionCreated, P: create,
+	}}, 0); err != nil {
+		t.Fatalf("create checklist item: %v", err)
+	}
+
+	tombstone, _ := json.Marshal(things.TombstoneActionItemPayload{DeletedObjectID: itemID})
+	if _, err := syncer.processItems([]things.Item{{
+		UUID: "tombstone", Kind: things.ItemKindTombstone, Action: things.ItemActionCreated, P: tombstone,
+	}}, 1); err != nil {
+		t.Fatalf("tombstone checklist item: %v", err)
+	}
+
+	completed := things.TaskStatusCompleted
+	complete, _ := json.Marshal(things.CheckListActionItemPayload{Status: &completed})
+	if _, err := syncer.processItems([]things.Item{{
+		UUID: itemID, Kind: things.ItemKindChecklistItem3, Action: things.ItemActionModified, P: complete,
+	}}, 2); err != nil {
+		t.Fatalf("complete checklist item: %v", err)
+	}
+
+	var gotTask, gotTitle string
+	var gotStatus, gotIndex, gotDeleted int
+	if err := syncer.db.QueryRow(`
+		SELECT task_uuid, title, status, "index", deleted
+		FROM checklist_items WHERE uuid = ?
+	`, itemID).Scan(&gotTask, &gotTitle, &gotStatus, &gotIndex, &gotDeleted); err != nil {
+		t.Fatalf("read restored checklist item: %v", err)
+	}
+	if gotTask != taskID || gotTitle != title || gotStatus != int(completed) || gotIndex != index || gotDeleted != 0 {
+		t.Fatalf("restored row = task %q title %q status %d index %d deleted %d", gotTask, gotTitle, gotStatus, gotIndex, gotDeleted)
+	}
+}
+
 // TestProcessNotePayloads covers delivery of a decoded note through the
 // transactional sync path.
 func TestProcessNotePayloads(t *testing.T) {

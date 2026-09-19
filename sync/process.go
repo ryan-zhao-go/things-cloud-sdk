@@ -256,6 +256,12 @@ func (s *Syncer) processChecklistItem(item things.Item, serverIndex int, ts time
 	if err != nil {
 		return nil, fmt.Errorf("getting checklist item %s: %w", item.UUID, err)
 	}
+	if old == nil && item.Action == things.ItemActionModified {
+		old, err = s.getChecklistItemForMerge(item.UUID)
+		if err != nil {
+			return nil, fmt.Errorf("getting deleted checklist item %s for merge: %w", item.UUID, err)
+		}
+	}
 
 	// Handle deletion
 	if item.Action == things.ItemActionDeleted {

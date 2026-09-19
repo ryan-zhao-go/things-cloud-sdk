@@ -293,14 +293,28 @@ func (s *Syncer) markTagDeleted(uuid string) error {
 	return err
 }
 
-// getChecklistItem retrieves a checklist item by UUID from the database.
+// getChecklistItem retrieves an active checklist item by UUID.
 // Returns nil, nil if the checklist item is not found or is deleted.
 func (s *Syncer) getChecklistItem(uuid string) (*things.CheckListItem, error) {
+	return s.loadChecklistItem(uuid, false)
+}
+
+// getChecklistItemForMerge also returns a soft-deleted row. Sparse remote
+// modifications need the stored title and parent relationship as their merge
+// base when a concurrent update makes the item active again.
+func (s *Syncer) getChecklistItemForMerge(uuid string) (*things.CheckListItem, error) {
+	return s.loadChecklistItem(uuid, true)
+}
+
+func (s *Syncer) loadChecklistItem(uuid string, includeDeleted bool) (*things.CheckListItem, error) {
+	where := "WHERE uuid = ? AND deleted = 0"
+	if includeDeleted {
+		where = "WHERE uuid = ?"
+	}
 	row := s.db.QueryRow(`
 		SELECT uuid, task_uuid, title, status, "index", creation_date, completion_date
 		FROM checklist_items
-		WHERE uuid = ? AND deleted = 0
-	`, uuid)
+		`+where, uuid)
 
 	var (
 		c              things.CheckListItem
